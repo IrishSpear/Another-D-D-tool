@@ -7,12 +7,13 @@ import json
 from pathlib import Path
 from typing import Iterable
 
+from .compendium import SRDCompendium
 from .exceptions import (
     CharacterAlreadyExistsError,
     CharacterNotFoundError,
     InsufficientFundsError,
 )
-from .models import EventCategory, TransactionType
+from .models import CharacterSheet, EventCategory, InventoryItem, TransactionType
 from .money import format_gp
 from .service import DnDBank
 
@@ -30,12 +31,42 @@ def save_bank(path: Path, bank: DnDBank) -> None:
     path.write_text(json.dumps(bank.to_serialized(), indent=2))
 
 
+def load_compendium_from_args(args: argparse.Namespace) -> SRDCompendium | None:
+    root = getattr(args, "compendium_root", None)
+    if not root:
+        return None
+    try:
+        return SRDCompendium(root)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc))
+
+
+def require_compendium(args: argparse.Namespace) -> SRDCompendium:
+    compendium = load_compendium_from_args(args)
+    if compendium is None:
+        raise SystemExit(
+            "This command requires --compendium-root pointing to a "
+            "5e-bits/5e-database checkout."
+        )
+    return compendium
+
+
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--ledger",
         type=Path,
         default=DEFAULT_LEDGER,
         help="Path to the persistent ledger file (default: ./dnd_ledger.json)",
+    )
+    parser.add_argument(
+        "--compendium-root",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to a 5e-bits/5e-database checkout. Enables the "
+            "'compendium' commands and allows inventory entries to be "
+            "prefilled from SRD equipment."
+        ),
     )
 
 
@@ -150,6 +181,292 @@ def cmd_history(args: argparse.Namespace) -> None:
         )
 
 
+def parse_assignments(values: Iterable[str]) -> dict[str, int]:
+    assignments: dict[str, int] = {}
+    for raw in values:
+        if "=" not in raw:
+            raise ValueError(f"Expected KEY=VALUE format for '{raw}'.")
+        key, value = raw.split("=", 1)
+        cleaned_key = key.strip().lower()
+        cleaned_value = value.strip()
+        if not cleaned_key or not cleaned_value:
+            raise ValueError(f"Invalid assignment '{raw}'.")
+        assignments[cleaned_key] = int(cleaned_value)
+    return assignments
+
+
+def render_sheet(name: str, sheet: CharacterSheet) -> None:
+    print(f"{name}'s character sheet")
+    header: list[str] = []
+    if sheet.character_class:
+        header.append(sheet.character_class)
+    if sheet.ancestry:
+        header.append(sheet.ancestry)
+    if sheet.background:
+        header.append(f"Background: {sheet.background}")
+    if sheet.alignment:
+        header.append(f"Alignment: {sheet.alignment}")
+    if header:
+        print(" • ".join(header))
+    print(f"Level {sheet.level} — {sheet.experience} XP — Proficiency +{sheet.proficiency_bonus}")
+    hp = sheet.hit_points
+    hp_line = f"HP {hp.current}/{hp.maximum} (+{hp.temporary} temp)"
+    if sheet.inspiration:
+        hp_line += " — Inspiration"
+    print(hp_line)
+    if sheet.passive_perception is not None:
+        print(f"Passive Perception: {sheet.passive_perception}")
+    ability_parts: list[str] = []
+    for ability, score in sheet.ability_scores.as_dict().items():
+        mod = sheet.ability_scores.modifier(ability)
+        ability_parts.append(f"{ability[:3].title()} {score} ({mod:+d})")
+    print("Abilities: " + ", ".join(ability_parts))
+    if sheet.notes:
+        print(f"Notes: {sheet.notes}")
+
+
+def format_inventory_item(item: InventoryItem) -> str:
+    parts = [f"{item.name} x{item.quantity}"]
+    if item.category:
+        parts.append(f"[{item.category}]")
+    if item.equipped:
+        parts.append("(equipped)")
+    if item.weight is not None:
+        parts.append(f"{item.weight} lb")
+    if item.value_gp is not None:
+        parts.append(format_gp(item.value_gp))
+    if item.description:
+        parts.append(f"— {item.description}")
+    return " ".join(parts)
+
+
+def cmd_sheet(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    try:
+        bank.get_character(args.name)
+    except CharacterNotFoundError as exc:
+        raise SystemExit(str(exc))
+
+    updates: dict[str, object] = {}
+    if args.character_class:
+        updates["character_class"] = args.character_class
+    if args.ancestry:
+        updates["ancestry"] = args.ancestry
+    if args.background:
+        updates["background"] = args.background
+    if args.alignment:
+        updates["alignment"] = args.alignment
+    if args.level is not None:
+        updates["level"] = args.level
+    if args.experience is not None:
+        updates["experience"] = args.experience
+    if args.proficiency is not None:
+        updates["proficiency_bonus"] = args.proficiency
+    if args.passive_perception is not None:
+        updates["passive_perception"] = args.passive_perception
+    if args.notes is not None:
+        updates["notes"] = args.notes
+    if args.inspiration is not None:
+        updates["inspiration"] = args.inspiration
+
+    ability_updates: dict[str, int] = {}
+    hp_updates: dict[str, int] = {}
+    if args.ability:
+        try:
+            ability_updates = parse_assignments(args.ability)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+        alias_map = {
+            "str": "strength",
+            "dex": "dexterity",
+            "con": "constitution",
+            "int": "intelligence",
+            "wis": "wisdom",
+            "cha": "charisma",
+        }
+        ability_updates = {
+            alias_map.get(key, key): value for key, value in ability_updates.items()
+        }
+    if args.hit_points:
+        try:
+            hp_updates = parse_assignments(args.hit_points)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+
+    if updates:
+        bank.update_character_sheet(args.name, **updates)
+    if ability_updates:
+        bank.set_ability_scores(args.name, **ability_updates)
+    if hp_updates:
+        bank.set_hit_points(
+            args.name,
+            maximum=hp_updates.get("maximum"),
+            current=hp_updates.get("current"),
+            temporary=hp_updates.get("temporary"),
+        )
+
+    if updates or ability_updates or hp_updates:
+        save_bank(args.ledger, bank)
+        print(f"Updated sheet for {args.name}.")
+
+    render_sheet(args.name, bank.get_character_sheet(args.name))
+
+
+def cmd_inventory_list(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    try:
+        items = bank.list_inventory(args.name)
+    except CharacterNotFoundError as exc:
+        raise SystemExit(str(exc))
+
+    if not items:
+        print(f"{args.name} carries nothing.")
+        return
+
+    for item in items:
+        print(format_inventory_item(item))
+
+
+def cmd_inventory_add(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    if getattr(args, "from_compendium", None):
+        compendium = require_compendium(args)
+        summary = compendium.get_equipment(args.from_compendium)
+        if summary is None:
+            raise SystemExit(
+                f"No equipment entry found for '{args.from_compendium}'."
+            )
+        if args.description is None and summary.description:
+            args.description = summary.description
+        if args.weight is None and summary.weight is not None:
+            args.weight = summary.weight
+        if args.value is None and summary.cost_gp is not None:
+            args.value = str(summary.cost_gp)
+        if args.category is None and summary.category:
+            args.category = summary.category
+    try:
+        item = bank.add_inventory_item(
+            args.name,
+            item_name=args.item,
+            quantity=args.quantity,
+            description=args.description,
+            weight=args.weight,
+            value_gp=args.value,
+            category=args.category,
+            equipped=args.equipped,
+        )
+    except (CharacterNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc))
+    save_bank(args.ledger, bank)
+    print(f"Added {item.name} x{item.quantity} to {args.name}.")
+
+
+def cmd_inventory_update(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    if getattr(args, "from_compendium", None):
+        compendium = require_compendium(args)
+        summary = compendium.get_equipment(args.from_compendium)
+        if summary is None:
+            raise SystemExit(
+                f"No equipment entry found for '{args.from_compendium}'."
+            )
+        if args.description is None and summary.description:
+            args.description = summary.description
+        if args.weight is None and summary.weight is not None:
+            args.weight = summary.weight
+        if args.value is None and summary.cost_gp is not None:
+            args.value = str(summary.cost_gp)
+        if args.category is None and summary.category:
+            args.category = summary.category
+    try:
+        item = bank.update_inventory_item(
+            args.name,
+            args.item,
+            quantity=args.quantity,
+            description=args.description,
+            weight=args.weight,
+            value_gp=args.value,
+            category=args.category,
+            equipped=args.equipped,
+        )
+    except (CharacterNotFoundError, KeyError, ValueError) as exc:
+        raise SystemExit(str(exc))
+    save_bank(args.ledger, bank)
+    print(f"Updated {item.name} for {args.name} (now x{item.quantity}).")
+
+
+def cmd_inventory_remove(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    try:
+        bank.remove_inventory_item(args.name, args.item, quantity=args.quantity)
+    except (CharacterNotFoundError, KeyError, ValueError) as exc:
+        raise SystemExit(str(exc))
+    save_bank(args.ledger, bank)
+    if args.quantity is None:
+        print(f"Removed {args.item} from {args.name}.")
+    else:
+        print(f"Removed {args.quantity} of {args.item} from {args.name}.")
+
+
+def cmd_compendium_search(args: argparse.Namespace) -> None:
+    compendium = require_compendium(args)
+    category = args.category
+    limit = max(args.limit, 1)
+    if category == "equipment":
+        matches = compendium.search_equipment(args.query)
+        if not matches:
+            print("No matching equipment found.")
+            return
+        for summary in matches[:limit]:
+            parts = [f"{summary.name} [{summary.index}]"]
+            if summary.category:
+                parts.append(summary.category)
+            if summary.cost_gp is not None:
+                parts.append(format_gp(summary.cost_gp))
+            print(" — ".join(parts))
+        if len(matches) > limit:
+            print(f"…and {len(matches) - limit} more matches.")
+        return
+
+    matches = compendium.search(category, args.query)
+    if not matches:
+        print(f"No {category} entries matched.")
+        return
+    for entry in matches[:limit]:
+        name = entry.get("name", "<unnamed>")
+        index = entry.get("index", "<unknown>")
+        print(f"{name} [{index}]")
+    if len(matches) > limit:
+        print(f"…and {len(matches) - limit} more matches.")
+
+
+def cmd_compendium_show(args: argparse.Namespace) -> None:
+    compendium = require_compendium(args)
+    category = args.category
+    if category == "equipment":
+        summary = compendium.get_equipment(args.key)
+        if summary is None:
+            print(f"No equipment entry found for '{args.key}'.")
+            return
+        print(f"{summary.name} [{summary.index}]")
+        if summary.category:
+            print(f"Category: {summary.category}")
+        if summary.cost_gp is not None:
+            print(f"Cost: {format_gp(summary.cost_gp)}")
+        if summary.weight is not None:
+            print(f"Weight: {summary.weight} lb")
+        if summary.description:
+            print()
+            print(summary.description)
+        return
+
+    entry = compendium.get(category, args.key)
+    if entry is None:
+        print(f"No {category} entry found for '{args.key}'.")
+        return
+    print(json.dumps(entry, indent=2, sort_keys=True))
+
+
 def cmd_distribute(args: argparse.Namespace) -> None:
     bank = load_bank(args.ledger)
     try:
@@ -230,6 +547,103 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional event category",
     )
     distribute.set_defaults(func=cmd_distribute)
+
+    sheet = subparsers.add_parser("sheet", help="View or update a character sheet")
+    sheet.add_argument("name")
+    sheet.add_argument("--class", dest="character_class")
+    sheet.add_argument("--ancestry")
+    sheet.add_argument("--background")
+    sheet.add_argument("--alignment")
+    sheet.add_argument("--level", type=int)
+    sheet.add_argument("--experience", type=int)
+    sheet.add_argument("--proficiency", type=int)
+    sheet.add_argument("--passive-perception", dest="passive_perception", type=int)
+    sheet.add_argument("--notes")
+    sheet.add_argument("--inspiration", dest="inspiration", action="store_true")
+    sheet.add_argument("--no-inspiration", dest="inspiration", action="store_false")
+    sheet.add_argument(
+        "--ability",
+        action="append",
+        metavar="ABILITY=VALUE",
+        help="Override an ability score (repeatable)",
+    )
+    sheet.add_argument(
+        "--hit-points",
+        dest="hit_points",
+        action="append",
+        metavar="FIELD=VALUE",
+        help="Adjust hit point pool (current, maximum, temporary)",
+    )
+    sheet.set_defaults(inspiration=None, func=cmd_sheet)
+
+    inventory = subparsers.add_parser("inventory", help="Manage a character's inventory")
+    inv_subparsers = inventory.add_subparsers(dest="inventory_command", required=True)
+
+    inv_list = inv_subparsers.add_parser("list", help="Display carried items")
+    inv_list.add_argument("name")
+    inv_list.set_defaults(func=cmd_inventory_list)
+
+    inv_add = inv_subparsers.add_parser("add", help="Add or increase an item")
+    inv_add.add_argument("name")
+    inv_add.add_argument("item")
+    inv_add.add_argument("--quantity", type=int, default=1)
+    inv_add.add_argument("--description")
+    inv_add.add_argument("--weight", type=float)
+    inv_add.add_argument("--value")
+    inv_add.add_argument("--category")
+    inv_add.add_argument("--equipped", action="store_true")
+    inv_add.add_argument(
+        "--from-compendium",
+        metavar="INDEX",
+        help="Prefill details from the SRD equipment list (requires --compendium-root)",
+    )
+    inv_add.set_defaults(func=cmd_inventory_add)
+
+    inv_update = inv_subparsers.add_parser("update", help="Edit an existing item")
+    inv_update.add_argument("name")
+    inv_update.add_argument("item")
+    inv_update.add_argument("--quantity", type=int)
+    inv_update.add_argument("--description")
+    inv_update.add_argument("--weight", type=float)
+    inv_update.add_argument("--value")
+    inv_update.add_argument("--category")
+    inv_update.add_argument("--equipped", action="store_true")
+    inv_update.add_argument("--unequipped", dest="equipped", action="store_false")
+    inv_update.add_argument(
+        "--from-compendium",
+        metavar="INDEX",
+        help="Refresh fields using SRD data (requires --compendium-root)",
+    )
+    inv_update.set_defaults(equipped=None, func=cmd_inventory_update)
+
+    inv_remove = inv_subparsers.add_parser("remove", help="Remove an item or reduce quantity")
+    inv_remove.add_argument("name")
+    inv_remove.add_argument("item")
+    inv_remove.add_argument("--quantity", type=int)
+    inv_remove.set_defaults(func=cmd_inventory_remove)
+
+    compendium_categories = sorted(SRDCompendium.CATEGORY_FILES.keys())
+
+    compendium = subparsers.add_parser(
+        "compendium", help="Browse the 5e SRD reference data from 5e-bits/5e-database"
+    )
+    comp_sub = compendium.add_subparsers(dest="compendium_command", required=True)
+
+    comp_search = comp_sub.add_parser("search", help="Search a compendium category")
+    comp_search.add_argument("category", choices=compendium_categories)
+    comp_search.add_argument("query")
+    comp_search.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Maximum number of matches to display (default: 10)",
+    )
+    comp_search.set_defaults(func=cmd_compendium_search)
+
+    comp_show = comp_sub.add_parser("show", help="Show full details for an entry")
+    comp_show.add_argument("category", choices=compendium_categories)
+    comp_show.add_argument("key", help="Entry name or index")
+    comp_show.set_defaults(func=cmd_compendium_show)
 
     return parser
 
