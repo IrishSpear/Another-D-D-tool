@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Mapping, MutableMapping
+from typing import Mapping, MutableMapping, Sequence
+from uuid import uuid4
 
 from .money import AmountLike, to_decimal
 
@@ -320,3 +321,299 @@ class InventoryItem:
             category=(payload.get("category") or None),
             equipped=bool(payload.get("equipped", False)),
         )
+
+
+class QuestStatus(str, Enum):
+    """State machine for campaign quest tracking."""
+
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass
+class QuestEntry:
+    """Represents an entry on the party's quest log."""
+
+    title: str
+    summary: str = ""
+    reward: str | None = None
+    status: QuestStatus = QuestStatus.ACTIVE
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    uid: str = field(default_factory=lambda: uuid4().hex)
+
+    def update(
+        self,
+        *,
+        title: str | None = None,
+        summary: str | None = None,
+        reward: str | None = None,
+        status: QuestStatus | str | None = None,
+    ) -> "QuestEntry":
+        if title is not None:
+            self.title = title
+        if summary is not None:
+            self.summary = summary
+        if reward is not None:
+            self.reward = reward
+        if status is not None:
+            self.status = status if isinstance(status, QuestStatus) else QuestStatus(status)
+        self.last_updated = datetime.now(timezone.utc)
+        return self
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "uid": self.uid,
+            "title": self.title,
+            "summary": self.summary,
+            "reward": self.reward,
+            "status": self.status.value,
+            "last_updated": self.last_updated.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "QuestEntry":
+        timestamp = payload.get("last_updated")
+        updated = (
+            datetime.fromisoformat(str(timestamp)) if isinstance(timestamp, str) else datetime.now(timezone.utc)
+        )
+        return cls(
+            uid=str(payload.get("uid", uuid4().hex)),
+            title=str(payload.get("title", "Unnamed Quest")),
+            summary=str(payload.get("summary", "")),
+            reward=payload.get("reward") or None,
+            status=QuestStatus(str(payload.get("status", QuestStatus.ACTIVE.value))),
+            last_updated=updated,
+        )
+
+
+@dataclass
+class PartyNote:
+    """Free-form notes shared across the adventuring party."""
+
+    title: str
+    body: str
+    category: str = "general"
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    uid: str = field(default_factory=lambda: uuid4().hex)
+
+    def update(
+        self,
+        *,
+        title: str | None = None,
+        body: str | None = None,
+        category: str | None = None,
+    ) -> "PartyNote":
+        if title is not None:
+            self.title = title
+        if body is not None:
+            self.body = body
+        if category is not None:
+            self.category = category
+        self.created_at = datetime.now(timezone.utc)
+        return self
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "uid": self.uid,
+            "title": self.title,
+            "body": self.body,
+            "category": self.category,
+            "created_at": self.created_at.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "PartyNote":
+        created = payload.get("created_at")
+        timestamp = (
+            datetime.fromisoformat(str(created)) if isinstance(created, str) else datetime.now(timezone.utc)
+        )
+        return cls(
+            uid=str(payload.get("uid", uuid4().hex)),
+            title=str(payload.get("title", "Untitled")),
+            body=str(payload.get("body", "")),
+            category=str(payload.get("category", "general")),
+            created_at=timestamp,
+        )
+
+
+@dataclass
+class ResourceTrack:
+    """Generic tracker for limited-use mechanics (spell slots, hit dice, etc.)."""
+
+    name: str
+    current: int
+    maximum: int | None = None
+    notes: str | None = None
+    uid: str = field(default_factory=lambda: uuid4().hex)
+
+    def update(
+        self,
+        *,
+        current: int | None = None,
+        maximum: int | None = None,
+        notes: str | None = None,
+    ) -> "ResourceTrack":
+        if current is not None:
+            self.current = current
+        if maximum is not None:
+            self.maximum = maximum
+        if notes is not None:
+            self.notes = notes
+        return self
+
+    def adjust(self, delta: int) -> "ResourceTrack":
+        self.current += delta
+        if self.maximum is not None:
+            self.current = max(min(self.current, self.maximum), 0)
+        return self
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "uid": self.uid,
+            "name": self.name,
+            "current": self.current,
+            "maximum": self.maximum,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "ResourceTrack":
+        return cls(
+            uid=str(payload.get("uid", uuid4().hex)),
+            name=str(payload.get("name", "Resource")),
+            current=int(payload.get("current", 0)),
+            maximum=(int(payload["maximum"]) if payload.get("maximum") not in (None, "") else None),
+            notes=payload.get("notes") or None,
+        )
+
+
+@dataclass
+class Combatant:
+    """Represents a participant in an encounter's initiative order."""
+
+    name: str
+    initiative: int
+    armor_class: int | None = None
+    maximum_hp: int | None = None
+    current_hp: int | None = None
+    conditions: tuple[str, ...] = field(default_factory=tuple)
+    role: str | None = None
+    notes: str | None = None
+    player_character: bool = False
+    uid: str = field(default_factory=lambda: uuid4().hex)
+
+    def update(
+        self,
+        *,
+        initiative: int | None = None,
+        armor_class: int | None = None,
+        maximum_hp: int | None = None,
+        current_hp: int | None = None,
+        conditions: Sequence[str] | None = None,
+        role: str | None = None,
+        notes: str | None = None,
+        player_character: bool | None = None,
+    ) -> "Combatant":
+        if initiative is not None:
+            self.initiative = initiative
+        if armor_class is not None:
+            self.armor_class = armor_class
+        if maximum_hp is not None:
+            self.maximum_hp = maximum_hp
+        if current_hp is not None:
+            self.current_hp = current_hp
+        if conditions is not None:
+            self.conditions = tuple(condition.strip() for condition in conditions if condition.strip())
+        if role is not None:
+            self.role = role
+        if notes is not None:
+            self.notes = notes
+        if player_character is not None:
+            self.player_character = player_character
+        return self
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "uid": self.uid,
+            "name": self.name,
+            "initiative": self.initiative,
+            "armor_class": self.armor_class,
+            "maximum_hp": self.maximum_hp,
+            "current_hp": self.current_hp,
+            "conditions": list(self.conditions),
+            "role": self.role,
+            "notes": self.notes,
+            "player_character": self.player_character,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "Combatant":
+        conditions = payload.get("conditions") or []
+        if isinstance(conditions, str):
+            parsed_conditions = [segment.strip() for segment in conditions.split(",") if segment.strip()]
+        else:
+            parsed_conditions = [str(segment) for segment in conditions]
+        return cls(
+            uid=str(payload.get("uid", uuid4().hex)),
+            name=str(payload.get("name", "Combatant")),
+            initiative=int(payload.get("initiative", 0)),
+            armor_class=(int(payload["armor_class"]) if payload.get("armor_class") not in (None, "") else None),
+            maximum_hp=(int(payload["maximum_hp"]) if payload.get("maximum_hp") not in (None, "") else None),
+            current_hp=(int(payload["current_hp"]) if payload.get("current_hp") not in (None, "") else None),
+            conditions=tuple(parsed_conditions),
+            role=payload.get("role") or None,
+            notes=payload.get("notes") or None,
+            player_character=bool(payload.get("player_character", False)),
+        )
+
+
+@dataclass
+class CombatEncounter:
+    """Holds initiative state for a combat encounter."""
+
+    name: str
+    uid: str = field(default_factory=lambda: uuid4().hex)
+    round: int = 1
+    active_index: int = 0
+    environment: str | None = None
+    notes: str | None = None
+    combatants: tuple[Combatant, ...] = field(default_factory=tuple)
+
+    def sorted_combatants(self) -> tuple[Combatant, ...]:
+        return tuple(
+            sorted(
+                self.combatants,
+                key=lambda combatant: (-combatant.initiative, combatant.name.casefold()),
+            )
+        )
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "uid": self.uid,
+            "name": self.name,
+            "round": self.round,
+            "active_index": self.active_index,
+            "environment": self.environment,
+            "notes": self.notes,
+            "combatants": [combatant.as_dict() for combatant in self.combatants],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "CombatEncounter":
+        combatants_payload = payload.get("combatants", [])
+        combatants = tuple(Combatant.from_dict(raw) for raw in combatants_payload)
+        encounter = cls(
+            uid=str(payload.get("uid", uuid4().hex)),
+            name=str(payload.get("name", "Encounter")),
+            round=int(payload.get("round", 1)),
+            active_index=int(payload.get("active_index", 0)),
+            environment=payload.get("environment") or None,
+            notes=payload.get("notes") or None,
+            combatants=combatants,
+        )
+        # Ensure order is consistent with initiative sorting
+        encounter.combatants = encounter.sorted_combatants()
+        if encounter.active_index >= len(encounter.combatants):
+            encounter.active_index = 0
+        return encounter

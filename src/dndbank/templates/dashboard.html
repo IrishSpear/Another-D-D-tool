@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>D&D Bank Ledger</title>
+    <title>D&D Campaign Console</title>
     <link rel="stylesheet" href="{{ request.url_for('static', path='style.css') }}">
   </head>
-  <body>
+  <body data-active-tab="{{ active_tab }}">
     <header class="hero">
-      <h1>KidBank for Adventurers</h1>
-      <p>Track treasure, expenses, and transfers for your entire party.</p>
+      <h1>Adventuring Party Command Center</h1>
+      <p>Track gold, sheets, gear, encounters, and party logistics from a single screen.</p>
       <div class="total">Total party wealth: <strong>{{ total_balance|format_gp }}</strong></div>
     </header>
 
@@ -21,218 +21,696 @@
       </ul>
     {% endif %}
 
-    <main class="layout">
-      <section class="panel ledger">
-        <h2>Party Ledger</h2>
-        {% if characters %}
-          <table class="balances">
-            <thead>
-              <tr>
-                <th>Adventurer</th>
-                <th>Player</th>
-                <th class="number">Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for character in characters %}
-                <tr>
-                  <td>{{ character.name }}</td>
-                  <td>{{ character.player or '—' }}</td>
-                  <td class="number">{{ character.balance|format_gp }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+    <nav class="tab-bar">
+      <button type="button" class="tab-button" data-tab-target="ledger">Ledger</button>
+      <button type="button" class="tab-button" data-tab-target="sheets">Character Sheets</button>
+      <button type="button" class="tab-button" data-tab-target="inventory">Inventory</button>
+      <button type="button" class="tab-button" data-tab-target="combat">Combat Tracker</button>
+      <button type="button" class="tab-button" data-tab-target="party">Party &amp; Mechanics</button>
+    </nav>
 
-          <div class="cards">
-            {% for character in characters %}
-              <article class="card">
-                <header>
-                  <h3>{{ character.name }}</h3>
-                  {% if character.player %}
-                    <span class="meta">Player: {{ character.player }}</span>
-                  {% endif %}
-                  <span class="meta">Balance: {{ character.balance|format_gp }}</span>
-                </header>
-                {% if character.recent %}
-                  <ul class="transactions">
-                    {% for txn in character.recent %}
-                      <li>
-                        <span class="amount {{ txn.type }}">{{ txn.amount|format_gp }}</span>
-                        <div class="details">
-                          <strong>{{ txn.description }}</strong>
-                          <span class="meta">{{ txn.category.value }} · {{ txn.timestamp.strftime('%Y-%m-%d %H:%M') }}</span>
-                        </div>
-                      </li>
+    <main class="tab-container">
+      <section id="tab-ledger" class="tab-panel">
+        <div class="layout">
+          <section class="panel ledger">
+            <h2>Party Ledger</h2>
+            {% if characters %}
+              <table class="balances">
+                <thead>
+                  <tr>
+                    <th>Adventurer</th>
+                    <th>Player</th>
+                    <th class="number">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for character in characters %}
+                    <tr>
+                      <td>{{ character.name }}</td>
+                      <td>{{ character.player or '—' }}</td>
+                      <td class="number">{{ character.balance|format_gp }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+
+              <div class="cards">
+                {% for character in characters %}
+                  <article class="card">
+                    <header>
+                      <h3>{{ character.name }}</h3>
+                      {% if character.player %}
+                        <span class="meta">Player: {{ character.player }}</span>
+                      {% endif %}
+                      <span class="meta">Balance: {{ character.balance|format_gp }}</span>
+                    </header>
+                    {% if character.recent %}
+                      <ul class="transactions">
+                        {% for txn in character.recent %}
+                          <li>
+                            <span class="amount {{ txn.type }}">{{ txn.amount|format_gp }}</span>
+                            <div class="details">
+                              <strong>{{ txn.description }}</strong>
+                              <span class="meta">{{ txn.category.value }} · {{ txn.timestamp.strftime('%Y-%m-%d %H:%M') }}</span>
+                            </div>
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    {% else %}
+                      <p class="empty">No transactions yet.</p>
+                    {% endif %}
+                  </article>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="empty">No adventurers yet. Use the forms to start your ledger.</p>
+            {% endif %}
+          </section>
+
+          <aside class="panel actions">
+            <section>
+              <h2>Add an adventurer</h2>
+              <form method="post" action="{{ request.url_for('create_character') }}" class="form">
+                <input type="hidden" name="tab" value="ledger">
+                <label>
+                  Character name
+                  <input type="text" name="name" required>
+                </label>
+                <label>
+                  Player
+                  <input type="text" name="player" placeholder="Optional">
+                </label>
+                <label>
+                  Starting gold
+                  <input type="number" step="0.01" min="0" name="starting_gold" value="0">
+                </label>
+                <button type="submit">Create adventurer</button>
+              </form>
+            </section>
+
+            <section>
+              <h2>Record loot</h2>
+              <form method="post" action="{{ request.url_for('earn_gold') }}" class="form">
+                <input type="hidden" name="tab" value="ledger">
+                <label>
+                  Character
+                  <select name="name" required>
+                    <option value="">Select</option>
+                    {% for character in characters %}
+                      <option value="{{ character.name }}">{{ character.name }}</option>
                     {% endfor %}
-                  </ul>
-                {% else %}
-                  <p class="empty">No transactions yet.</p>
-                {% endif %}
-              </article>
-            {% endfor %}
-          </div>
-        {% else %}
-          <p class="empty">No adventurers yet. Use the form to the right to create your first ledger entry.</p>
-        {% endif %}
+                  </select>
+                </label>
+                <label>
+                  Amount
+                  <input type="number" step="0.01" min="0.01" name="amount" required>
+                </label>
+                <label>
+                  Reason
+                  <input type="text" name="reason" value="Treasure haul">
+                </label>
+                <label>
+                  Category
+                  <select name="category">
+                    <option value="">Auto (loot)</option>
+                    {% for category in categories %}
+                      <option value="{{ category.value }}">{{ category.value.title() }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button type="submit">Add loot</button>
+              </form>
+            </section>
+
+            <section>
+              <h2>Log spending</h2>
+              <form method="post" action="{{ request.url_for('spend_gold') }}" class="form">
+                <input type="hidden" name="tab" value="ledger">
+                <label>
+                  Character
+                  <select name="name" required>
+                    <option value="">Select</option>
+                    {% for character in characters %}
+                      <option value="{{ character.name }}">{{ character.name }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  Amount
+                  <input type="number" step="0.01" min="0.01" name="amount" required>
+                </label>
+                <label>
+                  Reason
+                  <input type="text" name="reason" value="Purchase">
+                </label>
+                <label>
+                  Category
+                  <select name="category">
+                    <option value="">Auto (purchase)</option>
+                    {% for category in categories %}
+                      <option value="{{ category.value }}">{{ category.value.title() }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button type="submit">Log expense</button>
+              </form>
+            </section>
+
+            <section>
+              <h2>Transfer between party members</h2>
+              <form method="post" action="{{ request.url_for('transfer_gold') }}" class="form grid">
+                <input type="hidden" name="tab" value="ledger">
+                <label>
+                  From
+                  <select name="source" required>
+                    <option value="">Select</option>
+                    {% for character in characters %}
+                      <option value="{{ character.name }}">{{ character.name }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  To
+                  <select name="target" required>
+                    <option value="">Select</option>
+                    {% for character in characters %}
+                      <option value="{{ character.name }}">{{ character.name }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  Amount
+                  <input type="number" step="0.01" min="0.01" name="amount" required>
+                </label>
+                <label>
+                  Note
+                  <input type="text" name="reason" placeholder="Optional">
+                </label>
+                <button type="submit">Transfer</button>
+              </form>
+            </section>
+
+            <section>
+              <h2>Split treasure haul</h2>
+              <form method="post" action="{{ request.url_for('distribute_loot') }}" class="form">
+                <input type="hidden" name="tab" value="ledger">
+                <label>
+                  Adventurers
+                  <select name="characters" multiple size="4" required>
+                    {% for character in characters %}
+                      <option value="{{ character.name }}">{{ character.name }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  Total amount
+                  <input type="number" step="0.01" min="0.01" name="amount" required>
+                </label>
+                <label>
+                  Reason
+                  <input type="text" name="reason" value="Split loot">
+                </label>
+                <label>
+                  Category
+                  <select name="category">
+                    <option value="loot">Loot</option>
+                    {% for category in categories %}
+                      <option value="{{ category.value }}">{{ category.value.title() }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button type="submit">Distribute</button>
+              </form>
+            </section>
+          </aside>
+        </div>
       </section>
 
-      <aside class="panel actions">
-        <section>
-          <h2>Add an adventurer</h2>
-          <form method="post" action="{{ request.url_for('create_character') }}" class="form">
-            <label>
-              Character name
-              <input type="text" name="name" required>
-            </label>
-            <label>
-              Player
-              <input type="text" name="player" placeholder="Optional">
-            </label>
-            <label>
-              Starting gold
-              <input type="number" step="0.01" min="0" name="starting_gold" value="0">
-            </label>
-            <button type="submit">Create adventurer</button>
-          </form>
-        </section>
+      <section id="tab-sheets" class="tab-panel">
+        <div class="panel-grid">
+          {% for character in characters %}
+            <article class="panel sheet-card">
+              <header class="card-header">
+                <h2>{{ character.name }}</h2>
+                {% if character.player %}
+                  <span class="meta">Player: {{ character.player }}</span>
+                {% endif %}
+              </header>
+              <div class="sheet-body">
+                <div class="sheet-columns">
+                  <dl>
+                    <div><dt>Ancestry</dt><dd>{{ character.sheet.ancestry or '—' }}</dd></div>
+                    <div><dt>Class</dt><dd>{{ character.sheet.character_class or '—' }}</dd></div>
+                    <div><dt>Background</dt><dd>{{ character.sheet.background or '—' }}</dd></div>
+                    <div><dt>Alignment</dt><dd>{{ character.sheet.alignment or '—' }}</dd></div>
+                  </dl>
+                  <dl>
+                    <div><dt>Level</dt><dd>{{ character.sheet.level }}</dd></div>
+                    <div><dt>Experience</dt><dd>{{ character.sheet.experience }}</dd></div>
+                    <div><dt>Proficiency</dt><dd>+{{ character.sheet.proficiency_bonus }}</dd></div>
+                    <div><dt>Inspiration</dt><dd>{{ 'Yes' if character.sheet.inspiration else 'No' }}</dd></div>
+                    <div><dt>Passive Perception</dt><dd>{{ character.sheet.passive_perception or '—' }}</dd></div>
+                  </dl>
+                  <div class="hp-block">
+                    <h3>Hit Points</h3>
+                    <p><strong>{{ character.sheet.hit_points.current }}</strong> / {{ character.sheet.hit_points.maximum }} (Temp: {{ character.sheet.hit_points.temporary }})</p>
+                  </div>
+                </div>
 
-        <section>
-          <h2>Record loot</h2>
-          <form method="post" action="{{ request.url_for('earn_gold') }}" class="form">
-            <label>
-              Character
-              <select name="name" required>
-                <option value="">Select</option>
-                {% for character in characters %}
-                  <option value="{{ character.name }}">{{ character.name }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>
-              Amount
-              <input type="number" step="0.01" min="0.01" name="amount" required>
-            </label>
-            <label>
-              Reason
-              <input type="text" name="reason" value="Treasure haul">
-            </label>
-            <label>
-              Category
-              <select name="category">
-                <option value="">Auto (loot)</option>
-                {% for category in categories %}
-                  <option value="{{ category.value }}">{{ category.value.title() }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <button type="submit">Add loot</button>
-          </form>
-        </section>
+                <table class="ability-table">
+                  <thead>
+                    <tr>
+                      <th>STR</th><th>DEX</th><th>CON</th><th>INT</th><th>WIS</th><th>CHA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      {% for score in character.sheet.ability_scores.as_dict().values() %}
+                        <td>{{ score }}</td>
+                      {% endfor %}
+                    </tr>
+                  </tbody>
+                </table>
 
-        <section>
-          <h2>Log spending</h2>
-          <form method="post" action="{{ request.url_for('spend_gold') }}" class="form">
-            <label>
-              Character
-              <select name="name" required>
-                <option value="">Select</option>
-                {% for character in characters %}
-                  <option value="{{ character.name }}">{{ character.name }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>
-              Amount
-              <input type="number" step="0.01" min="0.01" name="amount" required>
-            </label>
-            <label>
-              Reason
-              <input type="text" name="reason" value="Purchase">
-            </label>
-            <label>
-              Category
-              <select name="category">
-                <option value="">Auto (purchase)</option>
-                {% for category in categories %}
-                  <option value="{{ category.value }}">{{ category.value.title() }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <button type="submit">Log expense</button>
-          </form>
-        </section>
+                <div class="notes">
+                  <h3>Notes</h3>
+                  <p>{{ character.sheet.notes or 'Add campaign notes below.' }}</p>
+                </div>
+              </div>
 
-        <section>
-          <h2>Transfer between party members</h2>
-          <form method="post" action="{{ request.url_for('transfer_gold') }}" class="form grid">
-            <label>
-              From
-              <select name="source" required>
-                <option value="">Select</option>
-                {% for character in characters %}
-                  <option value="{{ character.name }}">{{ character.name }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>
-              To
-              <select name="target" required>
-                <option value="">Select</option>
-                {% for character in characters %}
-                  <option value="{{ character.name }}">{{ character.name }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>
-              Amount
-              <input type="number" step="0.01" min="0.01" name="amount" required>
-            </label>
-            <label>
-              Note
-              <input type="text" name="reason" placeholder="Optional">
-            </label>
-            <button type="submit">Transfer</button>
-          </form>
-        </section>
+              <form method="post" action="{{ request.url_for('update_sheet') }}" class="form sheet-form">
+                <input type="hidden" name="name" value="{{ character.name }}">
+                <input type="hidden" name="tab" value="sheets">
+                <fieldset>
+                  <legend>Profile</legend>
+                  <label>Ancestry <input type="text" name="ancestry" value="{{ character.sheet.ancestry or '' }}"></label>
+                  <label>Class <input type="text" name="character_class" value="{{ character.sheet.character_class or '' }}"></label>
+                  <label>Background <input type="text" name="background" value="{{ character.sheet.background or '' }}"></label>
+                  <label>Alignment <input type="text" name="alignment" value="{{ character.sheet.alignment or '' }}"></label>
+                  <label>Level <input type="number" min="1" name="level" value="{{ character.sheet.level }}"></label>
+                  <label>Experience <input type="number" min="0" name="experience" value="{{ character.sheet.experience }}"></label>
+                  <label>Proficiency Bonus <input type="number" min="1" name="proficiency_bonus" value="{{ character.sheet.proficiency_bonus }}"></label>
+                  <label>Passive Perception <input type="number" min="0" name="passive_perception" value="{{ character.sheet.passive_perception or '' }}"></label>
+                  <label class="checkbox">
+                    <input type="checkbox" name="inspiration" {% if character.sheet.inspiration %}checked{% endif %}>
+                    Inspiration
+                  </label>
+                </fieldset>
 
-        <section>
-          <h2>Split treasure haul</h2>
-          <form method="post" action="{{ request.url_for('distribute_loot') }}" class="form">
-            <label>
-              Adventurers
-              <select name="characters" multiple size="5" required>
-                {% for character in characters %}
-                  <option value="{{ character.name }}">{{ character.name }}</option>
+                <fieldset>
+                  <legend>Ability Scores</legend>
+                  {% for ability, score in character.sheet.ability_scores.as_dict().items() %}
+                    <label>{{ ability|upper }} <input type="number" min="1" max="30" name="{{ ability }}" value="{{ score }}"></label>
+                  {% endfor %}
+                </fieldset>
+
+                <fieldset>
+                  <legend>Hit Points</legend>
+                  <label>Maximum <input type="number" min="1" name="hp_maximum" value="{{ character.sheet.hit_points.maximum }}"></label>
+                  <label>Current <input type="number" min="0" name="hp_current" value="{{ character.sheet.hit_points.current }}"></label>
+                  <label>Temporary <input type="number" min="0" name="hp_temporary" value="{{ character.sheet.hit_points.temporary }}"></label>
+                </fieldset>
+
+                <label>Notes
+                  <textarea name="notes" rows="3" placeholder="Campaign notes, personality traits, spell lists...">{{ character.sheet.notes or '' }}</textarea>
+                </label>
+                <button type="submit">Save sheet</button>
+              </form>
+            </article>
+          {% else %}
+            <p class="empty">Create adventurers on the ledger tab to start managing sheets.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section id="tab-inventory" class="tab-panel">
+        <div class="panel-grid">
+          {% for character in characters %}
+            <article class="panel inventory-card">
+              <header class="card-header">
+                <h2>{{ character.name }}'s Inventory</h2>
+                <span class="meta">{{ character.inventory|length }} items tracked</span>
+              </header>
+              {% if character.inventory %}
+                <table class="inventory-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Qty</th>
+                      <th>Category</th>
+                      <th>Value</th>
+                      <th>Equipped</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for item in character.inventory %}
+                      <tr>
+                        <td>
+                          <strong>{{ item.name }}</strong>
+                          {% if item.description %}
+                            <div class="meta">{{ item.description }}</div>
+                          {% endif %}
+                        </td>
+                        <td>{{ item.quantity }}</td>
+                        <td>{{ item.category or '—' }}</td>
+                        <td>{% if item.value_gp %}{{ item.value_gp|format_gp }}{% else %}—{% endif %}</td>
+                        <td>{{ 'Yes' if item.equipped else 'No' }}</td>
+                        <td>
+                          <form method="post" action="{{ request.url_for('remove_inventory') }}" class="inline-form">
+                            <input type="hidden" name="tab" value="inventory">
+                            <input type="hidden" name="character" value="{{ character.name }}">
+                            <input type="hidden" name="item_name" value="{{ item.name }}">
+                            <button type="submit" class="link">Remove</button>
+                          </form>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <p class="empty">No inventory tracked yet.</p>
+              {% endif %}
+
+              <form method="post" action="{{ request.url_for('add_inventory') }}" class="form">
+                <input type="hidden" name="character" value="{{ character.name }}">
+                <input type="hidden" name="tab" value="inventory">
+                <h3>Add or update item</h3>
+                <label>Item name <input type="text" name="item_name" required></label>
+                <label>Quantity <input type="number" min="1" name="quantity" value="1"></label>
+                <label>Description <textarea name="description" rows="2"></textarea></label>
+                <label>Weight (lb) <input type="number" step="0.1" min="0" name="weight"></label>
+                <label>Value (gp) <input type="number" step="0.01" min="0" name="value_gp"></label>
+                <label>Category <input type="text" name="category"></label>
+                <label class="checkbox"><input type="checkbox" name="equipped"> Equipped</label>
+                <button type="submit">Save item</button>
+              </form>
+            </article>
+          {% else %}
+            <p class="empty">Create adventurers on the ledger tab to start tracking gear.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section id="tab-combat" class="tab-panel">
+        <div class="panel-grid combat-grid">
+          <article class="panel encounter-form">
+            <h2>Create encounter</h2>
+            <form method="post" action="{{ request.url_for('create_encounter') }}" class="form">
+              <input type="hidden" name="tab" value="combat">
+              <label>Name <input type="text" name="name" required></label>
+              <label>Environment <input type="text" name="environment" placeholder="Dungeon, forest..."></label>
+              <label>Notes <textarea name="notes" rows="2" placeholder="Objectives, hazards, timers..."></textarea></label>
+              <button type="submit">Create encounter</button>
+            </form>
+          </article>
+
+          {% for encounter in encounters %}
+            <article class="panel encounter-card {% if active_encounter and active_encounter.uid == encounter.uid %}active{% endif %}">
+              <header class="card-header">
+                <div>
+                  <h2>{{ encounter.name }}</h2>
+                  {% if encounter.environment %}<span class="meta">{{ encounter.environment }}</span>{% endif %}
+                </div>
+                <div class="meta">Round {{ encounter.round }}</div>
+              </header>
+              {% if encounter.notes %}
+                <p class="meta">{{ encounter.notes }}</p>
+              {% endif %}
+
+              {% if encounter.combatants %}
+                <table class="combat-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Name</th>
+                      <th>Init</th>
+                      <th>AC</th>
+                      <th>HP</th>
+                      <th>Conditions</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for combatant in encounter.combatants %}
+                      <tr class="{% if loop.index0 == encounter.active_index %}active-combatant{% endif %}">
+                        <td>{{ loop.index }}</td>
+                        <td>
+                          <strong>{{ combatant.name }}</strong>
+                          {% if combatant.role %}<div class="meta">{{ combatant.role }}</div>{% endif %}
+                        </td>
+                        <td>{{ combatant.initiative }}</td>
+                        <td>{{ combatant.armor_class or '—' }}</td>
+                        <td>
+                          {% if combatant.maximum_hp is not none %}
+                            {{ combatant.current_hp or combatant.maximum_hp }} / {{ combatant.maximum_hp }}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </td>
+                        <td>
+                          {% if combatant.conditions %}
+                            {{ combatant.conditions|join(', ') }}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </td>
+                        <td>
+                          <form method="post" action="{{ request.url_for('remove_combatant') }}" class="inline-form">
+                            <input type="hidden" name="tab" value="combat">
+                            <input type="hidden" name="encounter_id" value="{{ encounter.uid }}">
+                            <input type="hidden" name="name" value="{{ combatant.name }}">
+                            <button type="submit" class="link">Remove</button>
+                          </form>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <p class="empty">Add combatants to start tracking initiative.</p>
+              {% endif %}
+
+              <div class="encounter-actions">
+                <form method="post" action="{{ request.url_for('activate_encounter') }}">
+                  <input type="hidden" name="tab" value="combat">
+                  <input type="hidden" name="encounter_id" value="{{ encounter.uid }}">
+                  <button type="submit">Set active</button>
+                </form>
+                <form method="post" action="{{ request.url_for('advance_encounter') }}">
+                  <input type="hidden" name="tab" value="combat">
+                  <input type="hidden" name="encounter_id" value="{{ encounter.uid }}">
+                  <button type="submit">Advance</button>
+                </form>
+                <form method="post" action="{{ request.url_for('reset_encounter') }}">
+                  <input type="hidden" name="tab" value="combat">
+                  <input type="hidden" name="encounter_id" value="{{ encounter.uid }}">
+                  <button type="submit">Reset</button>
+                </form>
+                <form method="post" action="{{ request.url_for('delete_encounter') }}">
+                  <input type="hidden" name="tab" value="combat">
+                  <input type="hidden" name="encounter_id" value="{{ encounter.uid }}">
+                  <button type="submit" class="link">Delete</button>
+                </form>
+              </div>
+
+              <form method="post" action="{{ request.url_for('upsert_combatant') }}" class="form">
+                <input type="hidden" name="tab" value="combat">
+                <input type="hidden" name="encounter_id" value="{{ encounter.uid }}">
+                <h3>Add or update combatant</h3>
+                <label>Name <input type="text" name="name" required></label>
+                <label>Initiative <input type="number" name="initiative" required></label>
+                <label>Armor Class <input type="number" min="0" name="armor_class"></label>
+                <label>Max HP <input type="number" min="0" name="maximum_hp"></label>
+                <label>Current HP <input type="number" min="0" name="current_hp"></label>
+                <label>Conditions <input type="text" name="conditions" placeholder="Comma separated"></label>
+                <label>Role <input type="text" name="role" placeholder="PC, NPC, Monster..."></label>
+                <label>Notes <textarea name="notes" rows="2"></textarea></label>
+                <label class="checkbox"><input type="checkbox" name="player_character"> Player character</label>
+                <button type="submit">Save combatant</button>
+              </form>
+            </article>
+          {% else %}
+            <p class="empty">Create an encounter to start managing initiative and combat rounds.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section id="tab-party" class="tab-panel">
+        <div class="panel-grid party-grid">
+          <article class="panel quest-panel">
+            <header class="card-header">
+              <h2>Quest log</h2>
+            </header>
+            {% if quests %}
+              <ul class="quest-list">
+                {% for quest in quests %}
+                  <li>
+                    <div>
+                      <strong>{{ quest.title }}</strong>
+                      <span class="badge status-{{ quest.status.value }}">{{ quest.status.value.title() }}</span>
+                      {% if quest.reward %}<span class="meta">Reward: {{ quest.reward }}</span>{% endif %}
+                      {% if quest.summary %}<p>{{ quest.summary }}</p>{% endif %}
+                    </div>
+                    <div class="quest-actions">
+                      {% for status in quest_statuses %}
+                        <form method="post" action="{{ request.url_for('update_quest_status') }}">
+                          <input type="hidden" name="tab" value="party">
+                          <input type="hidden" name="quest_id" value="{{ quest.uid }}">
+                          <input type="hidden" name="status" value="{{ status.value }}">
+                          <button type="submit" {% if quest.status == status %}disabled{% endif %}>{{ status.value.title() }}</button>
+                        </form>
+                      {% endfor %}
+                      <form method="post" action="{{ request.url_for('delete_quest') }}">
+                        <input type="hidden" name="tab" value="party">
+                        <input type="hidden" name="quest_id" value="{{ quest.uid }}">
+                        <button type="submit" class="link">Delete</button>
+                      </form>
+                    </div>
+                  </li>
                 {% endfor %}
-              </select>
-              <small>Select one or more characters (Ctrl/Command + click).</small>
-            </label>
-            <label>
-              Total amount
-              <input type="number" step="0.01" min="0.01" name="amount" required>
-            </label>
-            <label>
-              Reason
-              <input type="text" name="reason" value="Split loot">
-            </label>
-            <label>
-              Category
-              <select name="category">
-                <option value="loot" selected>Loot</option>
-                {% for category in categories %}
-                  <option value="{{ category.value }}">{{ category.value.title() }}</option>
+              </ul>
+            {% else %}
+              <p class="empty">Track main quests, side quests, or contracts here.</p>
+            {% endif %}
+
+            <form method="post" action="{{ request.url_for('add_quest') }}" class="form">
+              <input type="hidden" name="tab" value="party">
+              <h3>Add quest</h3>
+              <label>Title <input type="text" name="title" required></label>
+              <label>Summary <textarea name="summary" rows="2"></textarea></label>
+              <label>Reward <input type="text" name="reward"></label>
+              <label>Status
+                <select name="status">
+                  {% for status in quest_statuses %}
+                    <option value="{{ status.value }}">{{ status.value.title() }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button type="submit">Log quest</button>
+            </form>
+          </article>
+
+          <article class="panel notes-panel">
+            <header class="card-header">
+              <h2>Party notes</h2>
+            </header>
+            {% if notes %}
+              <ul class="note-list">
+                {% for note in notes %}
+                  <li>
+                    <div>
+                      <strong>{{ note.title }}</strong>
+                      <span class="meta">{{ note.category.title() }}</span>
+                      <p>{{ note.body }}</p>
+                    </div>
+                    <form method="post" action="{{ request.url_for('delete_note') }}">
+                      <input type="hidden" name="tab" value="party">
+                      <input type="hidden" name="note_id" value="{{ note.uid }}">
+                      <button type="submit" class="link">Delete</button>
+                    </form>
+                  </li>
                 {% endfor %}
-              </select>
-            </label>
-            <button type="submit">Distribute evenly</button>
-          </form>
-        </section>
-      </aside>
+              </ul>
+            {% else %}
+              <p class="empty">Capture NPC contacts, rumors, downtime goals, and world lore.</p>
+            {% endif %}
+
+            <form method="post" action="{{ request.url_for('add_note') }}" class="form">
+              <input type="hidden" name="tab" value="party">
+              <h3>Add note</h3>
+              <label>Title <input type="text" name="title" required></label>
+              <label>Category <input type="text" name="category" placeholder="Rumor, Contact, Downtime..."></label>
+              <label>Details <textarea name="body" rows="3" required></textarea></label>
+              <button type="submit">Save note</button>
+            </form>
+          </article>
+
+          <article class="panel resource-panel">
+            <header class="card-header">
+              <h2>Resource trackers</h2>
+            </header>
+            {% if resources %}
+              <ul class="resource-list">
+                {% for resource in resources %}
+                  <li>
+                    <div>
+                      <strong>{{ resource.name }}</strong>
+                      <span class="meta">{{ resource.current }}{% if resource.maximum is not none %} / {{ resource.maximum }}{% endif %}</span>
+                      {% if resource.notes %}<p>{{ resource.notes }}</p>{% endif %}
+                    </div>
+                    <div class="resource-actions">
+                      <form method="post" action="{{ request.url_for('adjust_resource') }}">
+                        <input type="hidden" name="tab" value="party">
+                        <input type="hidden" name="resource_id" value="{{ resource.uid }}">
+                        <input type="hidden" name="delta" value="1">
+                        <button type="submit">+1</button>
+                      </form>
+                      <form method="post" action="{{ request.url_for('adjust_resource') }}">
+                        <input type="hidden" name="tab" value="party">
+                        <input type="hidden" name="resource_id" value="{{ resource.uid }}">
+                        <input type="hidden" name="delta" value="-1">
+                        <button type="submit">-1</button>
+                      </form>
+                      <form method="post" action="{{ request.url_for('delete_resource') }}">
+                        <input type="hidden" name="tab" value="party">
+                        <input type="hidden" name="resource_id" value="{{ resource.uid }}">
+                        <button type="submit" class="link">Delete</button>
+                      </form>
+                    </div>
+                    <form method="post" action="{{ request.url_for('update_resource') }}" class="inline-form">
+                      <input type="hidden" name="tab" value="party">
+                      <input type="hidden" name="resource_id" value="{{ resource.uid }}">
+                      <label>Current <input type="number" name="current" value="{{ resource.current }}"></label>
+                      <label>Maximum <input type="number" name="maximum" value="{{ resource.maximum or '' }}"></label>
+                      <label>Notes <input type="text" name="notes" value="{{ resource.notes or '' }}"></label>
+                      <button type="submit">Update</button>
+                    </form>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="empty">Track spell slots, hit dice, inspiration pool, or shared supplies.</p>
+            {% endif %}
+
+            <form method="post" action="{{ request.url_for('add_resource') }}" class="form">
+              <input type="hidden" name="tab" value="party">
+              <h3>Add resource</h3>
+              <label>Name <input type="text" name="name" required></label>
+              <label>Current <input type="number" name="current" required></label>
+              <label>Maximum <input type="number" name="maximum"></label>
+              <label>Notes <input type="text" name="notes" placeholder="Short rest uses, spell slot tier..."></label>
+              <button type="submit">Create tracker</button>
+            </form>
+          </article>
+        </div>
+      </section>
     </main>
 
-    <footer class="footer">
-      Built to feel like <a href="https://github.com/IrishSpear/kidbank" target="_blank" rel="noopener">KidBank</a> but tailored for D&D treasure tracking.
-    </footer>
+    <script>
+      const body = document.body;
+      const buttons = document.querySelectorAll('[data-tab-target]');
+      const panels = document.querySelectorAll('.tab-panel');
+
+      function activateTab(name) {
+        const target = `tab-${name}`;
+        buttons.forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.tabTarget === name);
+        });
+        panels.forEach(panel => {
+          panel.classList.toggle('active', panel.id === target);
+        });
+        body.dataset.activeTab = name;
+        const url = new URL(window.location);
+        url.searchParams.set('tab', name);
+        window.history.replaceState({}, '', url);
+      }
+
+      buttons.forEach(button => {
+        button.addEventListener('click', () => activateTab(button.dataset.tabTarget));
+      });
+
+      activateTab(body.dataset.activeTab || 'ledger');
+    </script>
   </body>
 </html>

@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from dndbank import DnDBank, EventCategory
+from dndbank import DnDBank, EventCategory, QuestStatus
 from dndbank.exceptions import CharacterAlreadyExistsError, CharacterNotFoundError
 
 
@@ -63,6 +63,20 @@ def test_serialization_round_trip():
     bank.set_ability_scores("Dorian", charisma=18, wisdom=12)
     bank.set_hit_points("Dorian", maximum=28, current=18, temporary=4)
     bank.add_inventory_item("Dorian", item_name="Arcane Focus", category="Gear", equipped=True)
+    quest = bank.add_quest("Investigate Ruins", summary="Ancient vault", reward="500 gp")
+    note = bank.add_party_note("Patron", "Lady Winterhall offers support.", category="contact")
+    resource = bank.add_resource("Group Inspiration", current=1, maximum=3, notes="Refreshes weekly")
+    encounter = bank.create_encounter("Goblin Ambush", environment="Forest road", notes="Nighttime")
+    bank.add_combatant(
+        encounter.uid,
+        name="Goblin Scout",
+        initiative=15,
+        armor_class=13,
+        maximum_hp=7,
+        current_hp=7,
+        conditions=("Hidden",),
+    )
+    bank.set_active_encounter(encounter.uid)
 
     payload = bank.to_serialized()
     restored = DnDBank.from_serialized(payload)
@@ -74,6 +88,15 @@ def test_serialization_round_trip():
     assert restored_account.sheet.character_class == "Sorcerer"
     assert restored_account.sheet.hit_points.maximum == 28
     assert restored_account.inventory[0].name == "Arcane Focus"
+    restored_quest = restored.list_quests()[0]
+    assert restored_quest.title == quest.title
+    assert restored.list_party_notes()[0].title == note.title
+    restored_resource = restored.list_resources()[0]
+    assert restored_resource.name == resource.name
+    restored_encounter = restored.list_encounters()[0]
+    assert restored_encounter.name == encounter.name
+    assert restored.get_active_encounter().uid == restored_encounter.uid
+    assert restored_encounter.combatants[0].name == "Goblin Scout"
 
 
 def test_missing_character_raises_lookup_error():
@@ -128,3 +151,69 @@ def test_inventory_service_flow():
 
     bank.remove_inventory_item("Seren", "Longsword")
     assert bank.list_inventory("Seren") == ()
+
+
+def test_quest_and_note_management():
+    bank = DnDBank()
+
+    quest = bank.add_quest("Rescue Mission", summary="Free the villagers", reward="Favor")
+    assert quest.status is QuestStatus.ACTIVE
+
+    updated = bank.update_quest(quest.uid, status=QuestStatus.COMPLETED)
+    assert updated.status is QuestStatus.COMPLETED
+
+    note = bank.add_party_note("Rumor", "A dragon nests nearby.", category="rumor")
+    assert note.title == "Rumor"
+
+    resource = bank.add_resource("Spell Slots", current=6, maximum=8)
+    bank.adjust_resource(resource.uid, -2)
+    refreshed = bank.update_resource(resource.uid, current=5, notes="After rest")
+    assert refreshed.current == 5 and refreshed.notes == "After rest"
+
+    bank.remove_quest(quest.uid)
+    bank.remove_party_note(note.uid)
+    bank.remove_resource(resource.uid)
+
+    assert bank.list_quests() == ()
+    assert bank.list_party_notes() == ()
+    assert bank.list_resources() == ()
+
+
+def test_combat_encounter_flow():
+    bank = DnDBank()
+
+    encounter = bank.create_encounter("Bandit Raid", environment="Village")
+    bank.add_combatant(
+        encounter.uid,
+        name="Bandit Captain",
+        initiative=18,
+        armor_class=15,
+        maximum_hp=65,
+        current_hp=65,
+        role="Boss",
+    )
+    bank.add_combatant(
+        encounter.uid,
+        name="Alina",
+        initiative=16,
+        armor_class=17,
+        maximum_hp=42,
+        current_hp=38,
+        role="PC",
+        player_character=True,
+    )
+
+    bank.advance_encounter(encounter.uid)
+    bank.advance_encounter(encounter.uid)
+    active = bank.get_encounter(encounter.uid)
+    assert active.round == 2
+    assert len(active.combatants) == 2
+
+    bank.remove_combatant(encounter.uid, name="Bandit Captain")
+    trimmed = bank.get_encounter(encounter.uid)
+    assert len(trimmed.combatants) == 1
+    assert trimmed.combatants[0].name == "Alina"
+
+    bank.reset_encounter(encounter.uid)
+    reset = bank.get_encounter(encounter.uid)
+    assert reset.round == 1 and reset.active_index == 0

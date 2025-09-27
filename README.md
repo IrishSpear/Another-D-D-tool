@@ -1,6 +1,6 @@
 # Another D&D Tool
 
-This project mirrors the structure of the original [KidBank](https://github.com/IrishSpear/kidbank) app while focusing on tabletop parties instead of kids' allowances. It now ships with a FastAPI-powered web dashboard, well-tested domain objects, a high-level service façade, and a lightweight CLI for persisting gold ledgers to disk. Beyond party finances, the toolkit now understands character sheets, hit point tracking, and inventory management so you can run an entire campaign ledger from one place.
+This project mirrors the structure of the original [KidBank](https://github.com/IrishSpear/kidbank) app while focusing on tabletop parties instead of kids' allowances. It now ships with a FastAPI-powered campaign console, well-tested domain objects, a high-level service façade, and a lightweight CLI for persisting gold ledgers to disk. Beyond party finances, the toolkit tracks character sheets, hit points, equipment, encounters, quests, party notes, and generic resource pools so you can run an entire 5e session from one place.
 
 ## Project structure
 
@@ -48,7 +48,15 @@ Launch the KidBank-style dashboard with any ASGI server. Using Uvicorn (installe
 uvicorn dndbank.web:create_app --factory --reload
 ```
 
-Once running, visit http://127.0.0.1:8000/ to manage characters, award loot, log expenses, split treasure, and transfer gold between party members. Status banners confirm successful actions or highlight validation issues.
+Once running, visit http://127.0.0.1:8000/ to manage every facet of the party. The dashboard is organised into tabs:
+
+* **Ledger** – award loot, log expenses, split treasure, and transfer gold with a live transaction feed.
+* **Character Sheets** – edit ancestry, class, ability scores, hit points, and free-form notes for each hero.
+* **Inventory** – track equipment, consumables, treasure, and whether each item is equipped.
+* **Combat Tracker** – build encounters, manage initiative order, advance rounds, and monitor conditions.
+* **Party & Mechanics** – log quests, maintain shared notes, and manage resource pools for spell slots, hit dice, crew supplies, or other custom trackers.
+
+Status banners confirm successful actions or highlight validation issues, and every form remembers the tab you submitted it from so workflow stays uninterrupted.
 
 To customise persistence, override the ledger path when constructing the app yourself:
 
