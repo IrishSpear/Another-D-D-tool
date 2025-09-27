@@ -8,6 +8,7 @@ from .exceptions import (
 )
 from .models import EventCategory, Transaction, TransactionType
 from .service import DnDBank
+from .web import create_app
 
 __all__ = [
     "CharacterAccount",
@@ -18,4 +19,5 @@ __all__ = [
     "InsufficientFundsError",
     "Transaction",
     "TransactionType",
+    "create_app",
 ]

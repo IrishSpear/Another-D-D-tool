@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Irish Spear" }]
 keywords = ["dnd", "ledger", "kidbank"]
+dependencies = [
+  "Flask>=2.3,<3",
+]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -18,3 +21,6 @@ classifiers = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"dndbank" = ["templates/*.html", "static/*.css"]
