@@ -1,6 +1,6 @@
 # Another D&D Tool
 
-This project mirrors the structure of the original [KidBank](https://github.com/IrishSpear/kidbank) app while focusing on tabletop parties instead of kids' allowances. It now ships with a FastAPI-powered web dashboard, well-tested domain objects, a high-level service façade, and a lightweight CLI for persisting gold ledgers to disk.
+This project mirrors the structure of the original [KidBank](https://github.com/IrishSpear/kidbank) app while focusing on tabletop parties instead of kids' allowances. It now ships with a FastAPI-powered web dashboard, well-tested domain objects, a high-level service façade, and a lightweight CLI for persisting gold ledgers to disk. Beyond party finances, the toolkit now understands character sheets, hit point tracking, and inventory management so you can run an entire campaign ledger from one place.
 
 ## Project structure
 
@@ -8,10 +8,10 @@ This project mirrors the structure of the original [KidBank](https://github.com/
 src/
   dndbank/
     __init__.py        # Public exports (DnDBank, models, exceptions)
-    account.py         # CharacterAccount domain logic
+    account.py         # CharacterAccount domain logic (gold, sheets, inventory)
     cli.py             # Argparse CLI for working with JSON ledgers
     exceptions.py      # Error hierarchy
-    models.py          # Dataclasses and enums describing transactions
+    models.py          # Dataclasses and enums describing transactions, sheets, items
     money.py           # Decimal helpers for gold piece arithmetic
     service.py         # DnDBank façade coordinating accounts
 pytest.ini             # Configures pytest to discover src/ package
@@ -94,4 +94,22 @@ python -m dndbank.cli history "Mira Quickstep"
 ```
 
 Because the ledger file is plain JSON you can commit it to version control or copy it between machines to keep a party's finances synchronised.
+
+### Track character sheets and inventory
+
+Use the new ``sheet`` command to view or update a character's role-playing information, ability scores, and hit points:
+
+```bash
+python -m dndbank.cli sheet "Sir Galahad" --class Paladin --ancestry Human --level 5 \
+    --ability str=18 --ability cha=16 --hit-points maximum=45 --hit-points current=38
+```
+
+Manage equipment, consumables, and treasures with the ``inventory`` commands:
+
+```bash
+python -m dndbank.cli inventory add "Sir Galahad" "Longsword" --category Weapon --equipped
+python -m dndbank.cli inventory list "Sir Galahad"
+python -m dndbank.cli inventory update "Sir Galahad" "Longsword" --description "Family heirloom"
+python -m dndbank.cli inventory remove "Sir Galahad" "Longsword"
+```
 

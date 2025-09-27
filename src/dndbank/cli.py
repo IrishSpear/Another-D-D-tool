@@ -12,7 +12,7 @@ from .exceptions import (
     CharacterNotFoundError,
     InsufficientFundsError,
 )
-from .models import EventCategory, TransactionType
+from .models import CharacterSheet, EventCategory, InventoryItem, TransactionType
 from .money import format_gp
 from .service import DnDBank
 
@@ -150,6 +150,203 @@ def cmd_history(args: argparse.Namespace) -> None:
         )
 
 
+def parse_assignments(values: Iterable[str]) -> dict[str, int]:
+    assignments: dict[str, int] = {}
+    for raw in values:
+        if "=" not in raw:
+            raise ValueError(f"Expected KEY=VALUE format for '{raw}'.")
+        key, value = raw.split("=", 1)
+        cleaned_key = key.strip().lower()
+        cleaned_value = value.strip()
+        if not cleaned_key or not cleaned_value:
+            raise ValueError(f"Invalid assignment '{raw}'.")
+        assignments[cleaned_key] = int(cleaned_value)
+    return assignments
+
+
+def render_sheet(name: str, sheet: CharacterSheet) -> None:
+    print(f"{name}'s character sheet")
+    header: list[str] = []
+    if sheet.character_class:
+        header.append(sheet.character_class)
+    if sheet.ancestry:
+        header.append(sheet.ancestry)
+    if sheet.background:
+        header.append(f"Background: {sheet.background}")
+    if sheet.alignment:
+        header.append(f"Alignment: {sheet.alignment}")
+    if header:
+        print(" • ".join(header))
+    print(f"Level {sheet.level} — {sheet.experience} XP — Proficiency +{sheet.proficiency_bonus}")
+    hp = sheet.hit_points
+    hp_line = f"HP {hp.current}/{hp.maximum} (+{hp.temporary} temp)"
+    if sheet.inspiration:
+        hp_line += " — Inspiration"
+    print(hp_line)
+    if sheet.passive_perception is not None:
+        print(f"Passive Perception: {sheet.passive_perception}")
+    ability_parts: list[str] = []
+    for ability, score in sheet.ability_scores.as_dict().items():
+        mod = sheet.ability_scores.modifier(ability)
+        ability_parts.append(f"{ability[:3].title()} {score} ({mod:+d})")
+    print("Abilities: " + ", ".join(ability_parts))
+    if sheet.notes:
+        print(f"Notes: {sheet.notes}")
+
+
+def format_inventory_item(item: InventoryItem) -> str:
+    parts = [f"{item.name} x{item.quantity}"]
+    if item.category:
+        parts.append(f"[{item.category}]")
+    if item.equipped:
+        parts.append("(equipped)")
+    if item.weight is not None:
+        parts.append(f"{item.weight} lb")
+    if item.value_gp is not None:
+        parts.append(format_gp(item.value_gp))
+    if item.description:
+        parts.append(f"— {item.description}")
+    return " ".join(parts)
+
+
+def cmd_sheet(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    try:
+        bank.get_character(args.name)
+    except CharacterNotFoundError as exc:
+        raise SystemExit(str(exc))
+
+    updates: dict[str, object] = {}
+    if args.character_class:
+        updates["character_class"] = args.character_class
+    if args.ancestry:
+        updates["ancestry"] = args.ancestry
+    if args.background:
+        updates["background"] = args.background
+    if args.alignment:
+        updates["alignment"] = args.alignment
+    if args.level is not None:
+        updates["level"] = args.level
+    if args.experience is not None:
+        updates["experience"] = args.experience
+    if args.proficiency is not None:
+        updates["proficiency_bonus"] = args.proficiency
+    if args.passive_perception is not None:
+        updates["passive_perception"] = args.passive_perception
+    if args.notes is not None:
+        updates["notes"] = args.notes
+    if args.inspiration is not None:
+        updates["inspiration"] = args.inspiration
+
+    ability_updates: dict[str, int] = {}
+    hp_updates: dict[str, int] = {}
+    if args.ability:
+        try:
+            ability_updates = parse_assignments(args.ability)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+        alias_map = {
+            "str": "strength",
+            "dex": "dexterity",
+            "con": "constitution",
+            "int": "intelligence",
+            "wis": "wisdom",
+            "cha": "charisma",
+        }
+        ability_updates = {
+            alias_map.get(key, key): value for key, value in ability_updates.items()
+        }
+    if args.hit_points:
+        try:
+            hp_updates = parse_assignments(args.hit_points)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+
+    if updates:
+        bank.update_character_sheet(args.name, **updates)
+    if ability_updates:
+        bank.set_ability_scores(args.name, **ability_updates)
+    if hp_updates:
+        bank.set_hit_points(
+            args.name,
+            maximum=hp_updates.get("maximum"),
+            current=hp_updates.get("current"),
+            temporary=hp_updates.get("temporary"),
+        )
+
+    if updates or ability_updates or hp_updates:
+        save_bank(args.ledger, bank)
+        print(f"Updated sheet for {args.name}.")
+
+    render_sheet(args.name, bank.get_character_sheet(args.name))
+
+
+def cmd_inventory_list(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    try:
+        items = bank.list_inventory(args.name)
+    except CharacterNotFoundError as exc:
+        raise SystemExit(str(exc))
+
+    if not items:
+        print(f"{args.name} carries nothing.")
+        return
+
+    for item in items:
+        print(format_inventory_item(item))
+
+
+def cmd_inventory_add(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    try:
+        item = bank.add_inventory_item(
+            args.name,
+            item_name=args.item,
+            quantity=args.quantity,
+            description=args.description,
+            weight=args.weight,
+            value_gp=args.value,
+            category=args.category,
+            equipped=args.equipped,
+        )
+    except (CharacterNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc))
+    save_bank(args.ledger, bank)
+    print(f"Added {item.name} x{item.quantity} to {args.name}.")
+
+
+def cmd_inventory_update(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    try:
+        item = bank.update_inventory_item(
+            args.name,
+            args.item,
+            quantity=args.quantity,
+            description=args.description,
+            weight=args.weight,
+            value_gp=args.value,
+            category=args.category,
+            equipped=args.equipped,
+        )
+    except (CharacterNotFoundError, KeyError, ValueError) as exc:
+        raise SystemExit(str(exc))
+    save_bank(args.ledger, bank)
+    print(f"Updated {item.name} for {args.name} (now x{item.quantity}).")
+
+
+def cmd_inventory_remove(args: argparse.Namespace) -> None:
+    bank = load_bank(args.ledger)
+    try:
+        bank.remove_inventory_item(args.name, args.item, quantity=args.quantity)
+    except (CharacterNotFoundError, KeyError, ValueError) as exc:
+        raise SystemExit(str(exc))
+    save_bank(args.ledger, bank)
+    if args.quantity is None:
+        print(f"Removed {args.item} from {args.name}.")
+    else:
+        print(f"Removed {args.quantity} of {args.item} from {args.name}.")
+
+
 def cmd_distribute(args: argparse.Namespace) -> None:
     bank = load_bank(args.ledger)
     try:
@@ -230,6 +427,70 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional event category",
     )
     distribute.set_defaults(func=cmd_distribute)
+
+    sheet = subparsers.add_parser("sheet", help="View or update a character sheet")
+    sheet.add_argument("name")
+    sheet.add_argument("--class", dest="character_class")
+    sheet.add_argument("--ancestry")
+    sheet.add_argument("--background")
+    sheet.add_argument("--alignment")
+    sheet.add_argument("--level", type=int)
+    sheet.add_argument("--experience", type=int)
+    sheet.add_argument("--proficiency", type=int)
+    sheet.add_argument("--passive-perception", dest="passive_perception", type=int)
+    sheet.add_argument("--notes")
+    sheet.add_argument("--inspiration", dest="inspiration", action="store_true")
+    sheet.add_argument("--no-inspiration", dest="inspiration", action="store_false")
+    sheet.add_argument(
+        "--ability",
+        action="append",
+        metavar="ABILITY=VALUE",
+        help="Override an ability score (repeatable)",
+    )
+    sheet.add_argument(
+        "--hit-points",
+        dest="hit_points",
+        action="append",
+        metavar="FIELD=VALUE",
+        help="Adjust hit point pool (current, maximum, temporary)",
+    )
+    sheet.set_defaults(inspiration=None, func=cmd_sheet)
+
+    inventory = subparsers.add_parser("inventory", help="Manage a character's inventory")
+    inv_subparsers = inventory.add_subparsers(dest="inventory_command", required=True)
+
+    inv_list = inv_subparsers.add_parser("list", help="Display carried items")
+    inv_list.add_argument("name")
+    inv_list.set_defaults(func=cmd_inventory_list)
+
+    inv_add = inv_subparsers.add_parser("add", help="Add or increase an item")
+    inv_add.add_argument("name")
+    inv_add.add_argument("item")
+    inv_add.add_argument("--quantity", type=int, default=1)
+    inv_add.add_argument("--description")
+    inv_add.add_argument("--weight", type=float)
+    inv_add.add_argument("--value")
+    inv_add.add_argument("--category")
+    inv_add.add_argument("--equipped", action="store_true")
+    inv_add.set_defaults(func=cmd_inventory_add)
+
+    inv_update = inv_subparsers.add_parser("update", help="Edit an existing item")
+    inv_update.add_argument("name")
+    inv_update.add_argument("item")
+    inv_update.add_argument("--quantity", type=int)
+    inv_update.add_argument("--description")
+    inv_update.add_argument("--weight", type=float)
+    inv_update.add_argument("--value")
+    inv_update.add_argument("--category")
+    inv_update.add_argument("--equipped", action="store_true")
+    inv_update.add_argument("--unequipped", dest="equipped", action="store_false")
+    inv_update.set_defaults(equipped=None, func=cmd_inventory_update)
+
+    inv_remove = inv_subparsers.add_parser("remove", help="Remove an item or reduce quantity")
+    inv_remove.add_argument("name")
+    inv_remove.add_argument("item")
+    inv_remove.add_argument("--quantity", type=int)
+    inv_remove.set_defaults(func=cmd_inventory_remove)
 
     return parser
 

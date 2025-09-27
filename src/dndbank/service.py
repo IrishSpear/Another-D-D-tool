@@ -7,7 +7,7 @@ from typing import Iterable, Mapping, Optional, Tuple
 
 from .account import CharacterAccount
 from .exceptions import CharacterAlreadyExistsError, CharacterNotFoundError
-from .models import EventCategory, Transaction
+from .models import AbilityScores, CharacterSheet, EventCategory, HitPointPool, InventoryItem, Transaction
 from .money import AmountLike, to_decimal
 
 
@@ -38,10 +38,16 @@ class DnDBank:
         *,
         player: str | None = None,
         starting_gold: AmountLike = 0,
+        sheet: CharacterSheet | None = None,
     ) -> CharacterAccount:
         if name in self._accounts:
             raise CharacterAlreadyExistsError(f"Character '{name}' already exists.")
-        account = CharacterAccount(name, player=player, starting_gold=starting_gold)
+        account = CharacterAccount(
+            name,
+            player=player,
+            starting_gold=starting_gold,
+            sheet=sheet,
+        )
         self._accounts[name] = account
         return account
 
@@ -133,3 +139,99 @@ class DnDBank:
                 self._accounts[name].to_serialized() for name in self.list_characters()
             ]
         }
+
+    # Character sheet management -------------------------------------------------
+
+    def get_character_sheet(self, name: str) -> CharacterSheet:
+        return self.get_character(name).sheet
+
+    def update_character_sheet(self, name: str, **fields: object) -> CharacterSheet:
+        account = self.get_character(name)
+        return account.update_sheet(**fields)
+
+    def set_ability_scores(self, name: str, **scores: int) -> AbilityScores:
+        account = self.get_character(name)
+        return account.set_ability_scores(**scores)
+
+    def adjust_hit_points(
+        self,
+        name: str,
+        delta: int,
+        *,
+        use_temporary: bool = True,
+    ) -> HitPointPool:
+        account = self.get_character(name)
+        return account.adjust_hit_points(delta, use_temporary=use_temporary)
+
+    def set_hit_points(
+        self,
+        name: str,
+        *,
+        maximum: int | None = None,
+        current: int | None = None,
+        temporary: int | None = None,
+    ) -> HitPointPool:
+        account = self.get_character(name)
+        return account.set_hit_points(maximum=maximum, current=current, temporary=temporary)
+
+    # Inventory management -------------------------------------------------------
+
+    def list_inventory(self, name: str) -> Tuple[InventoryItem, ...]:
+        account = self.get_character(name)
+        return account.list_inventory()
+
+    def add_inventory_item(
+        self,
+        name: str,
+        *,
+        item_name: str,
+        quantity: int = 1,
+        description: str | None = None,
+        weight: float | None = None,
+        value_gp: AmountLike | None = None,
+        category: str | None = None,
+        equipped: bool | None = None,
+    ) -> InventoryItem:
+        account = self.get_character(name)
+        return account.add_inventory_item(
+            item_name,
+            quantity=quantity,
+            description=description,
+            weight=weight,
+            value_gp=value_gp,
+            category=category,
+            equipped=equipped,
+        )
+
+    def update_inventory_item(
+        self,
+        name: str,
+        item_name: str,
+        *,
+        quantity: int | None = None,
+        description: str | None = None,
+        weight: float | None = None,
+        value_gp: AmountLike | None = None,
+        category: str | None = None,
+        equipped: bool | None = None,
+    ) -> InventoryItem:
+        account = self.get_character(name)
+        return account.update_inventory_item(
+            item_name,
+            quantity=quantity,
+            description=description,
+            weight=weight,
+            value_gp=value_gp,
+            category=category,
+            equipped=equipped,
+        )
+
+    def remove_inventory_item(
+        self,
+        name: str,
+        item_name: str,
+        *,
+        quantity: int | None = None,
+    ) -> None:
+        account = self.get_character(name)
+        account.remove_inventory_item(item_name, quantity=quantity)
