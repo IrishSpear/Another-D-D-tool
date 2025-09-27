@@ -392,16 +392,20 @@
                 <p class="empty">No inventory tracked yet.</p>
               {% endif %}
 
-              <form method="post" action="{{ request.url_for('add_inventory') }}" class="form">
+              <form method="post" action="{{ request.url_for('add_inventory') }}" class="form inventory-form" data-inventory-form>
                 <input type="hidden" name="character" value="{{ character.name }}">
                 <input type="hidden" name="tab" value="inventory">
                 <h3>Add or update item</h3>
-                <label>Item name <input type="text" name="item_name" required></label>
+                <label class="autocomplete">
+                  Item name
+                  <input type="text" name="item_name" required data-item-name>
+                  <div class="autocomplete-list" data-suggestion-list hidden></div>
+                </label>
                 <label>Quantity <input type="number" min="1" name="quantity" value="1"></label>
-                <label>Description <textarea name="description" rows="2"></textarea></label>
-                <label>Weight (lb) <input type="number" step="0.1" min="0" name="weight"></label>
-                <label>Value (gp) <input type="number" step="0.01" min="0" name="value_gp"></label>
-                <label>Category <input type="text" name="category"></label>
+                <label>Description <textarea name="description" rows="2" data-item-description></textarea></label>
+                <label>Weight (lb) <input type="number" step="0.1" min="0" name="weight" data-item-weight></label>
+                <label>Value (gp) <input type="number" step="0.01" min="0" name="value_gp" data-item-value></label>
+                <label>Category <input type="text" name="category" data-item-category></label>
                 <label class="checkbox"><input type="checkbox" name="equipped"> Equipped</label>
                 <button type="submit">Save item</button>
               </form>
@@ -711,6 +715,160 @@
       });
 
       activateTab(body.dataset.activeTab || 'ledger');
+
+      const AUTOCOMPLETE_DELAY = 180;
+      const AUTOCOMPLETE_LIMIT = 7;
+
+      document.querySelectorAll('[data-inventory-form]').forEach(form => {
+        setupInventoryAutocomplete(form);
+      });
+
+      function setupInventoryAutocomplete(form) {
+        const input = form.querySelector('[data-item-name]');
+        const list = form.querySelector('[data-suggestion-list]');
+        if (!input || !list || !window.fetch) {
+          return;
+        }
+
+        const descriptionField = form.querySelector('[data-item-description]');
+        const weightField = form.querySelector('[data-item-weight]');
+        const valueField = form.querySelector('[data-item-value]');
+        const categoryField = form.querySelector('[data-item-category]');
+
+        let debounceId;
+        let requestToken = 0;
+
+        const clearSuggestions = () => {
+          list.innerHTML = '';
+          list.hidden = true;
+        };
+
+        const renderSuggestions = items => {
+          list.innerHTML = '';
+          if (!items.length) {
+            const empty = document.createElement('div');
+            empty.className = 'autocomplete-empty';
+            empty.textContent = 'No matching Open5e items found.';
+            list.append(empty);
+            list.hidden = false;
+            return;
+          }
+
+          items.forEach(item => {
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.className = 'autocomplete-option';
+
+            const title = document.createElement('strong');
+            title.textContent = item.name;
+            option.append(title);
+
+            const details = [];
+            if (item.category) {
+              details.push(item.category);
+            }
+            if (item.value_gp) {
+              details.push(`${item.value_gp} gp`);
+            }
+            if (item.weight_lb) {
+              const unit = item.weight_unit || 'lb';
+              details.push(`${item.weight_lb} ${unit}`);
+            }
+            if (item.rarity) {
+              details.push(item.rarity);
+            }
+            if (details.length) {
+              const meta = document.createElement('span');
+              meta.className = 'meta';
+              meta.textContent = details.join(' • ');
+              option.append(meta);
+            }
+
+            if (item.description) {
+              const snippet = document.createElement('span');
+              snippet.className = 'meta';
+              snippet.textContent = truncateText(item.description, 160);
+              option.append(snippet);
+            }
+
+            option.addEventListener('click', () => {
+              input.value = item.name;
+              if (descriptionField) {
+                descriptionField.value = item.description || '';
+              }
+              if (weightField) {
+                weightField.value = item.weight_lb || '';
+              }
+              if (valueField) {
+                valueField.value = item.value_gp || '';
+              }
+              if (categoryField) {
+                categoryField.value = item.category || '';
+              }
+              clearSuggestions();
+              input.focus();
+            });
+
+            list.append(option);
+          });
+
+          list.hidden = false;
+        };
+
+        const fetchSuggestions = async term => {
+          const currentToken = ++requestToken;
+          try {
+            const response = await fetch(`/api/open5e/items?q=${encodeURIComponent(term)}&limit=${AUTOCOMPLETE_LIMIT}`);
+            if (!response.ok) {
+              return;
+            }
+            const payload = await response.json();
+            if (currentToken !== requestToken) {
+              return;
+            }
+            const results = Array.isArray(payload.results) ? payload.results : [];
+            renderSuggestions(results);
+          } catch (error) {
+            if (currentToken === requestToken) {
+              clearSuggestions();
+            }
+          }
+        };
+
+        input.addEventListener('input', () => {
+          const term = input.value.trim();
+          clearTimeout(debounceId);
+          if (term.length < 2) {
+            requestToken += 1;
+            clearSuggestions();
+            return;
+          }
+          debounceId = setTimeout(() => fetchSuggestions(term), AUTOCOMPLETE_DELAY);
+        });
+
+        input.addEventListener('focus', () => {
+          if (list.children.length) {
+            list.hidden = false;
+          }
+        });
+
+        document.addEventListener('click', event => {
+          if (!form.contains(event.target)) {
+            clearSuggestions();
+          }
+        });
+
+        form.addEventListener('submit', () => {
+          clearSuggestions();
+        });
+      }
+
+      function truncateText(text, max) {
+        if (!text || text.length <= max) {
+          return text;
+        }
+        return `${text.slice(0, max - 1).trim()}…`;
+      }
     </script>
   </body>
 </html>

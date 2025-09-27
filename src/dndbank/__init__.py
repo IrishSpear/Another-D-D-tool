@@ -26,6 +26,7 @@ from .models import (
     Transaction,
     TransactionType,
 )
+from .open5e import Open5eClient, Open5eError
 from .service import DnDBank
 
 
@@ -51,6 +52,8 @@ __all__ = [
     "HitPointPool",
     "InsufficientFundsError",
     "InventoryItem",
+    "Open5eClient",
+    "Open5eError",
     "PartyNote",
     "QuestEntry",
     "QuestStatus",

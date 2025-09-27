@@ -52,7 +52,7 @@ Once running, visit http://127.0.0.1:8000/ to manage every facet of the party. T
 
 * **Ledger** – award loot, log expenses, split treasure, and transfer gold with a live transaction feed.
 * **Character Sheets** – edit ancestry, class, ability scores, hit points, and free-form notes for each hero.
-* **Inventory** – track equipment, consumables, treasure, and whether each item is equipped.
+* **Inventory** – track equipment, consumables, treasure, and whether each item is equipped. Start typing an item name to search the [Open5e API](https://github.com/open5e/open5e-api) and auto-fill description, value, and weight data.
 * **Combat Tracker** – build encounters, manage initiative order, advance rounds, and monitor conditions.
 * **Party & Mechanics** – log quests, maintain shared notes, and manage resource pools for spell slots, hit dice, crew supplies, or other custom trackers.
 

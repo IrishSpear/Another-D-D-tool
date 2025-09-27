@@ -9,7 +9,7 @@ from typing import Any, Annotated, Sequence
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -20,6 +20,7 @@ from .exceptions import (
 )
 from .models import EventCategory, QuestStatus
 from .money import format_gp
+from .open5e import Open5eClient, Open5eError
 from .service import DnDBank
 
 
@@ -38,6 +39,7 @@ def create_app(config: dict[str, Any] | None = None) -> FastAPI:
     templates.env.filters["format_gp"] = format_gp
 
     app = FastAPI(title="D&D Bank", version="0.2.0")
+    open5e_client = Open5eClient()
 
     cfg: dict[str, Any] = {"LEDGER_PATH": Path("instance/dnd_ledger.json")}
     if config:
@@ -69,6 +71,15 @@ def create_app(config: dict[str, Any] | None = None) -> FastAPI:
             category = categories[index] if index < len(categories) else "info"
             messages.append({"category": category, "text": text})
         return messages
+
+    @app.get("/api/open5e/items")
+    async def search_open5e_items(q: str, limit: int = 8) -> JSONResponse:
+        clamped_limit = max(1, min(limit, 20))
+        try:
+            results = await open5e_client.search_items(q, limit=clamped_limit)
+        except Open5eError:
+            return JSONResponse({"results": []}, status_code=502)
+        return JSONResponse({"results": [item.to_payload() for item in results]})
 
     def redirect_with_message(
         request: Request,
