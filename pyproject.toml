@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dndbank"
+version = "0.1.0"
+description = "KidBank-inspired D&D treasury manager"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Irish Spear" }]
+keywords = ["dnd", "ledger", "kidbank"]
+dependencies = [
+  "Flask>=2.3,<3",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "License :: OSI Approved :: MIT License",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"dndbank" = ["templates/*.html", "static/*.css"]

@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>D&D Bank Ledger</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <header class="hero">
+      <h1>KidBank for Adventurers</h1>
+      <p>Track treasure, expenses, and transfers for your entire party.</p>
+      <div class="total">Total party wealth: <strong>{{ total_balance|format_gp }}</strong></div>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="messages">
+          {% for category, message in messages %}
+            <li class="message {{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <main class="layout">
+      <section class="panel ledger">
+        <h2>Party Ledger</h2>
+        {% if characters %}
+          <table class="balances">
+            <thead>
+              <tr>
+                <th>Adventurer</th>
+                <th>Player</th>
+                <th class="number">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for character in characters %}
+                <tr>
+                  <td>{{ character.name }}</td>
+                  <td>{{ character.player or '—' }}</td>
+                  <td class="number">{{ character.balance|format_gp }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+
+          <div class="cards">
+            {% for character in characters %}
+              <article class="card">
+                <header>
+                  <h3>{{ character.name }}</h3>
+                  {% if character.player %}
+                    <span class="meta">Player: {{ character.player }}</span>
+                  {% endif %}
+                  <span class="meta">Balance: {{ character.balance|format_gp }}</span>
+                </header>
+                {% if character.recent %}
+                  <ul class="transactions">
+                    {% for txn in character.recent %}
+                      <li>
+                        <span class="amount {{ txn.type }}">{{ txn.amount|format_gp }}</span>
+                        <div class="details">
+                          <strong>{{ txn.description }}</strong>
+                          <span class="meta">{{ txn.category.value }} · {{ txn.timestamp.strftime('%Y-%m-%d %H:%M') }}</span>
+                        </div>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <p class="empty">No transactions yet.</p>
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="empty">No adventurers yet. Use the form to the right to create your first ledger entry.</p>
+        {% endif %}
+      </section>
+
+      <aside class="panel actions">
+        <section>
+          <h2>Add an adventurer</h2>
+          <form method="post" action="{{ url_for('create_character') }}" class="form">
+            <label>
+              Character name
+              <input type="text" name="name" required>
+            </label>
+            <label>
+              Player
+              <input type="text" name="player" placeholder="Optional">
+            </label>
+            <label>
+              Starting gold
+              <input type="number" step="0.01" min="0" name="starting_gold" value="0">
+            </label>
+            <button type="submit">Create adventurer</button>
+          </form>
+        </section>
+
+        <section>
+          <h2>Record loot</h2>
+          <form method="post" action="{{ url_for('earn_gold') }}" class="form">
+            <label>
+              Character
+              <select name="name" required>
+                <option value="">Select</option>
+                {% for character in characters %}
+                  <option value="{{ character.name }}">{{ character.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Amount
+              <input type="number" step="0.01" min="0.01" name="amount" required>
+            </label>
+            <label>
+              Reason
+              <input type="text" name="reason" value="Treasure haul">
+            </label>
+            <label>
+              Category
+              <select name="category">
+                <option value="">Auto (loot)</option>
+                {% for category in categories %}
+                  <option value="{{ category.value }}">{{ category.value.title() }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="submit">Add loot</button>
+          </form>
+        </section>
+
+        <section>
+          <h2>Log spending</h2>
+          <form method="post" action="{{ url_for('spend_gold') }}" class="form">
+            <label>
+              Character
+              <select name="name" required>
+                <option value="">Select</option>
+                {% for character in characters %}
+                  <option value="{{ character.name }}">{{ character.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Amount
+              <input type="number" step="0.01" min="0.01" name="amount" required>
+            </label>
+            <label>
+              Reason
+              <input type="text" name="reason" value="Purchase">
+            </label>
+            <label>
+              Category
+              <select name="category">
+                <option value="">Auto (purchase)</option>
+                {% for category in categories %}
+                  <option value="{{ category.value }}">{{ category.value.title() }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="submit">Log expense</button>
+          </form>
+        </section>
+
+        <section>
+          <h2>Transfer between party members</h2>
+          <form method="post" action="{{ url_for('transfer_gold') }}" class="form grid">
+            <label>
+              From
+              <select name="source" required>
+                <option value="">Select</option>
+                {% for character in characters %}
+                  <option value="{{ character.name }}">{{ character.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              To
+              <select name="target" required>
+                <option value="">Select</option>
+                {% for character in characters %}
+                  <option value="{{ character.name }}">{{ character.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Amount
+              <input type="number" step="0.01" min="0.01" name="amount" required>
+            </label>
+            <label>
+              Note
+              <input type="text" name="reason" placeholder="Optional">
+            </label>
+            <button type="submit">Transfer</button>
+          </form>
+        </section>
+
+        <section>
+          <h2>Split treasure haul</h2>
+          <form method="post" action="{{ url_for('distribute_loot') }}" class="form">
+            <label>
+              Adventurers
+              <select name="characters" multiple size="5" required>
+                {% for character in characters %}
+                  <option value="{{ character.name }}">{{ character.name }}</option>
+                {% endfor %}
+              </select>
+              <small>Select one or more characters (Ctrl/Command + click).</small>
+            </label>
+            <label>
+              Total amount
+              <input type="number" step="0.01" min="0.01" name="amount" required>
+            </label>
+            <label>
+              Reason
+              <input type="text" name="reason" value="Split loot">
+            </label>
+            <label>
+              Category
+              <select name="category">
+                <option value="loot" selected>Loot</option>
+                {% for category in categories %}
+                  <option value="{{ category.value }}">{{ category.value.title() }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="submit">Distribute evenly</button>
+          </form>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      Built to feel like <a href="https://github.com/IrishSpear/kidbank" target="_blank" rel="noopener">KidBank</a> but tailored for D&D treasure tracking.
+    </footer>
+  </body>
+</html>
