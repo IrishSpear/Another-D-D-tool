@@ -22,14 +22,13 @@ tests/
 
 ## Installation
 
-The package only depends on the Python standard library. Python 3.10 or newer is recommended to match the typing used throughout the project.
-
-Optionally create and activate a virtual environment, then install the project in editable mode for easier experimentation:
+Python 3.10 or newer is recommended to match the typing used throughout the project. Install the package (and its web
+dependencies such as Uvicorn) before attempting to start the server:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
+python -m pip install -e .
 ```
 
 ## Running the test suite
