@@ -66,11 +66,13 @@ The CLI lives alongside the package and persists data in a JSON file (default `d
 python -m dndbank.cli --help
 ```
 
+
 ### Create characters
 
 ```bash
 python -m dndbank.cli create "Sir Galahad" --player "Alice" --gold 50
 python -m dndbank.cli create "Mira Quickstep" --player "Bob"
+
 ```
 
 ### Record treasure and expenses
@@ -80,6 +82,7 @@ python -m dndbank.cli earn "Sir Galahad" 250 --reason "Dragon hoard"
 python -m dndbank.cli spend "Mira Quickstep" 25 --reason "Thieves' guild dues"
 python -m dndbank.cli transfer "Sir Galahad" "Mira Quickstep" 50 --reason "Shared spoils"
 python -m dndbank.cli distribute 120 "Sir Galahad" "Mira Quickstep" --reason "Chest of coins"
+
 ```
 
 ### Check balances and history
@@ -91,3 +94,4 @@ python -m dndbank.cli history "Mira Quickstep"
 ```
 
 Because the ledger file is plain JSON you can commit it to version control or copy it between machines to keep a party's finances synchronised.
+
