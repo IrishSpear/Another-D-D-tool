@@ -6,17 +6,29 @@ from .exceptions import (
     CharacterNotFoundError,
     InsufficientFundsError,
 )
-from .models import EventCategory, Transaction, TransactionType
+from .models import (
+    AbilityScores,
+    CharacterSheet,
+    EventCategory,
+    HitPointPool,
+    InventoryItem,
+    Transaction,
+    TransactionType,
+)
 from .service import DnDBank
 from .web import create_app
 
 __all__ = [
+    "AbilityScores",
     "CharacterAccount",
     "CharacterAlreadyExistsError",
     "CharacterNotFoundError",
+    "CharacterSheet",
     "DnDBank",
     "EventCategory",
+    "HitPointPool",
     "InsufficientFundsError",
+    "InventoryItem",
     "Transaction",
     "TransactionType",
     "create_app",
